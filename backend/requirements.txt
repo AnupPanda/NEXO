@@ -4,4 +4,4 @@ python-multipart
 pillow
 pymupdf
 pdf2docx
-pypdf  <-- Add this line
+pypdf  
