@@ -1,20 +1,24 @@
-# Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
-# Install LibreOffice and other dependencies
-RUN apt-get update && apt-get install -y \
+# Install LibreOffice + Headless dependencies
+RUN apt update && apt install -y \
     libreoffice \
-    && apt-get clean
+    libreoffice-java-common \
+    libxinerama1 \
+    libfontconfig1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
 WORKDIR /app
 
-# Copy requirements and install them
+# Set Environment Variable so Python knows where LibreOffice lives
+ENV OFFICE_PATH=/usr/bin/libreoffice
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
 COPY . .
 
-# Command to run the application
+# Ensure the temporary directory for conversions exists
+RUN mkdir -p /app/temp
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]

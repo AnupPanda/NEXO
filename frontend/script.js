@@ -1,110 +1,145 @@
 const API_BASE = "https://nexo-api-v2.onrender.com";
 
-window.addEventListener("DOMContentLoaded", () => {
-  const getModeValue = () => document.querySelector('input[name="mode"]:checked').value;
-  
-  const modeContainer = document.getElementById("modeContainer");
-  const dropZone = document.getElementById("dropZone");
-  const fileInput = document.getElementById("fileInput");
-  const filesInput = document.getElementById("filesInput");
-  const filePreview = document.getElementById("filePreview");
-  const resultBox = document.getElementById("resultBox");
-  const loadingBox = document.getElementById("loadingBox");
-  const msgBox = document.getElementById("msgBox");
-  const downloadBtn = document.getElementById("downloadBtn");
-  const dropHint = document.getElementById("dropHint");
-  const convertBtn = document.getElementById("convertBtn");
+// DOM Elements
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const filesInput = document.getElementById('filesInput');
+const convertBtn = document.getElementById('convertBtn');
+const resultBox = document.getElementById('resultBox');
+const downloadBtn = document.getElementById('downloadBtn');
+const loadingBox = document.getElementById('loadingBox');
+const msgBox = document.getElementById('msgBox');
+const dropHint = document.getElementById('dropHint');
 
-  function isMultiMode() {
-    const mode = getModeValue();
-    return mode === "merge_images_to_pdf" || mode === "merge_pdfs";
-  }
+// --- 1. CONFIGURATION & MAPPING ---
+const MULTI_MODES = ["merge_pdfs", "merge_images_to_pdf"];
 
-  function updateHint() {
-    const mode = getModeValue();
-    const hints = {
-      docx_to_pdf: "Upload one .docx file",
-      ppt_to_pdf: "Upload one .pptx file",
-      excel_to_pdf: "Upload one .xlsx file",
-      merge_pdfs: "Upload 2+ PDF files",
-      split_pdf: "Upload one PDF to split into pages",
-      compress_pdf: "Upload one PDF to reduce size",
-      merge_images_to_pdf: "Upload multiple JPG/PNG images",
-    };
-    dropHint.textContent = hints[mode] || "Upload your file";
-    clearStatus();
-  }
-
-  function clearStatus() {
-    filePreview.innerHTML = "";
-    fileInput.value = "";
-    filesInput.value = "";
-    resultBox.classList.add("hidden");
-    msgBox.classList.add("hidden");
-    downloadBtn.classList.add("hidden");
-  }
-
-  function renderFiles(files) {
-    filePreview.innerHTML = "";
-    [...files].forEach(file => {
-      const card = document.createElement("div");
-      card.className = "file-card";
-      card.innerHTML = `<div class="file-name">${file.name}</div><div class="file-size">${(file.size / 1024).toFixed(1)} KB</div>`;
-      filePreview.appendChild(card);
+// --- 2. UI INTERACTION (DRAG & DROP) ---
+['dragenter', 'dragover'].forEach(name => {
+    dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-active');
     });
-  }
+});
 
-  modeContainer.addEventListener("change", updateHint);
-  dropZone.addEventListener("click", () => isMultiMode() ? filesInput.click() : fileInput.click());
+['dragleave', 'drop'].forEach(name => {
+    dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-active');
+    });
+});
 
-  fileInput.addEventListener("change", () => renderFiles(fileInput.files));
-  filesInput.addEventListener("change", () => renderFiles(filesInput.files));
+dropZone.addEventListener('drop', (e) => {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    const files = e.dataTransfer.files;
+    handleFileSelection(files, mode);
+});
 
-  convertBtn.addEventListener("click", async () => {
-    const formData = new FormData();
-    const mode = getModeValue();
-    formData.append("mode", mode);
+dropZone.onclick = () => {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    MULTI_MODES.includes(mode) ? filesInput.click() : fileInput.click();
+};
 
-    if (isMultiMode()) {
-      if (!filesInput.files.length) return alert("Please select files first");
-      [...filesInput.files].forEach(f => formData.append("files", f));
-    } else {
-      if (!fileInput.files[0]) return alert("Please select a file first");
-      formData.append("file", fileInput.files[0]);
+// --- 3. FILE VALIDATION LOGIC ---
+function handleFileSelection(files, mode) {
+    if (files.length === 0) return;
+    
+    // Update UI text
+    dropHint.innerHTML = `<span style="color: #00e5ff;">${files.length} file(s) selected:</span><br>${files[0].name}`;
+    
+    // Logic for Single vs Multi
+    if (!MULTI_MODES.includes(mode) && files.length > 1) {
+        alert("This mode only supports one file. I will use the first one.");
+    }
+}
+
+[fileInput, filesInput].forEach(input => {
+    input.onchange = () => {
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        handleFileSelection(input.files, mode);
+    };
+});
+
+// --- 4. THE CORE CONVERSION ENGINE ---
+convertBtn.onclick = async () => {
+    const uiMode = document.querySelector('input[name="mode"]:checked').value;
+    const isMulti = MULTI_MODES.includes(uiMode);
+    const files = isMulti ? filesInput.files : fileInput.files;
+
+    if (files.length === 0) {
+        alert("Please upload a file first!");
+        return;
     }
 
-    resultBox.classList.remove("hidden");
-    loadingBox.classList.remove("hidden");
-    msgBox.classList.add("hidden");
-    downloadBtn.classList.add("hidden");
+    // Enter Loading State
+    toggleLoading(true);
+
+    // SMART TRANSLATION: Map UI buttons to Backend route strings
+    let finalMode = uiMode;
+    if (uiMode === "img_to_pdf") {
+        finalMode = files[0].type === "image/png" ? "png_to_pdf" : "jpg_to_pdf";
+    } else if (uiMode === "pdf_to_img") {
+        finalMode = "pdf_to_png"; 
+    }
+
+    const formData = new FormData();
+    formData.append("mode", finalMode);
+
+    if (isMulti) {
+        Array.from(files).forEach(f => formData.append("files", f));
+    } else {
+        formData.append("file", files[0]);
+    }
 
     try {
-      const res = await fetch(`${API_BASE}/convert`, { method: "POST", body: formData });
-      const data = await res.json();
-      loadingBox.classList.add("hidden");
-      msgBox.classList.remove("hidden");
+        const response = await fetch(`${API_BASE}/convert`, {
+            method: "POST",
+            body: formData
+        });
 
-      if (data.ok) {
-        msgBox.textContent = "Conversion Successful!";
-        msgBox.className = "msg-box msg-success";
-        downloadBtn.classList.remove("hidden");
-        downloadBtn.onclick = () => {
-          const a = document.createElement("a");
-          a.href = `${API_BASE}${data.url}`;
-          a.download = data.file;
-          a.click();
-        };
-      } else {
-        msgBox.textContent = data.msg;
-        msgBox.className = "msg-box msg-error";
-      }
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.msg || "Server Error");
+        }
+
+        const data = await response.json();
+
+        // Success State
+        showResult(true, data.file, `${API_BASE}${data.url}`);
+
     } catch (err) {
-      loadingBox.classList.add("hidden");
-      msgBox.classList.remove("hidden");
-      msgBox.textContent = "Server connection failed.";
-      msgBox.className = "msg-box msg-error";
+        showResult(false, err.message);
+    } finally {
+        toggleLoading(false);
     }
-  });
+};
 
-  updateHint();
-});
+// --- 5. UI HELPER FUNCTIONS ---
+function toggleLoading(isLoading) {
+    convertBtn.disabled = isLoading;
+    resultBox.classList.toggle('hidden', !isLoading && !msgBox.textContent);
+    loadingBox.classList.toggle('hidden', !isLoading);
+    if (isLoading) {
+        msgBox.classList.add('hidden');
+        downloadBtn.classList.add('hidden');
+    }
+}
+
+function showResult(success, message, url = null) {
+    resultBox.classList.remove('hidden');
+    msgBox.classList.remove('hidden');
+    msgBox.style.color = success ? "#4ade80" : "#f87171";
+    msgBox.textContent = success ? "Success! File is ready." : "Error: " + message;
+
+    if (success && url) {
+        downloadBtn.classList.remove('hidden');
+        downloadBtn.onclick = () => {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = message;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        };
+    }
+}
