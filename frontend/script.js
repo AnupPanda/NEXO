@@ -1,4 +1,4 @@
-const API_BASE = "https://nexo-api-9uvb.onrender.com";
+const API_BASE = "https://nexo-api-v2.onrender.com";
 
 window.addEventListener("DOMContentLoaded", () => {
   const getModeValue = () => document.querySelector('input[name="mode"]:checked').value;
